@@ -1,0 +1,5 @@
+{
+  "name": "Svenska Polisnyheter AI",
+  "description": "En automatiserad nyhetsportal som hämtar händelser från Polisens API och genererar unika nyhetsartiklar med hjälp av Gemini AI var tionde minut.",
+  "requestFramePermissions": []
+}
