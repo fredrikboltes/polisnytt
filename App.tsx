@@ -44,12 +44,14 @@ const App: React.FC = () => {
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
+        const generatedEventIds = new Set<number>();
         const eventsToProcess = newEvents.slice(0, 5);
 
         for (const event of eventsToProcess) {
           const article = await generateNewsArticle(event);
           if (article) {
             generatedArticles.push(article);
+            generatedEventIds.add(event.id);
           }
         }
 
@@ -62,7 +64,7 @@ const App: React.FC = () => {
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            generatedEventIds.forEach(id => next.add(id));
             return next;
           });
         }
