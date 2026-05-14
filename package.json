@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "NODE_ENV=production node server.mjs",
+    "start": "NODE_ENV=production node server.mjs"
   },
   "dependencies": {
     "react-dom": "^19.2.3",
