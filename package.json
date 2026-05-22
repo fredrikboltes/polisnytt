@@ -4,14 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "NODE_ENV=production node server.mjs",
+    "start": "NODE_ENV=production node server.mjs",
+    "test": "GEMINI_API_KEY=AIzaTEST_SECRET npm run build && node scripts/assert-build-output.mjs"
   },
   "dependencies": {
-    "react-dom": "^19.2.3",
     "@google/genai": "^1.34.0",
-    "react": "^19.2.3"
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

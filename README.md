@@ -18,3 +18,13 @@ View your app in AI Studio: https://ai.studio/apps/drive/1jYfRQHM0T0xsspp_QLlEKK
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+The local server serves both the Vite app and the `/api/generate-article` endpoint, keeping the Gemini API key out of the browser bundle.
+
+## Production
+
+Build the client and run the Node server:
+
+`npm run build`
+
+`npm start`
