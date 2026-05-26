@@ -18,3 +18,5 @@ View your app in AI Studio: https://ai.studio/apps/drive/1jYfRQHM0T0xsspp_QLlEKK
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+The local server serves the React app and keeps Gemini requests behind `/api/generate-article`, so the API key is not bundled into the browser.
