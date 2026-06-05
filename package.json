@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.mjs --dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "start": "node server.mjs",
+    "preview": "npm run build && npm run start",
+    "test": "npm run build && node scripts/check-dist-security.mjs"
   },
   "dependencies": {
     "react-dom": "^19.2.3",
