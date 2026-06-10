@@ -18,10 +18,15 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const timerRef = useRef<number | null>(null);
+  const requestGenerationRef = useRef(0);
 
-  const updateArticles = useCallback(async (countyOverride?: string) => {
+  const updateArticles = useCallback(async (countyOverride?: string, processedIdsOverride?: Set<number>) => {
     const county = countyOverride || selectedCounty;
     if (!county) return;
+
+    const requestGeneration = requestGenerationRef.current;
+    const processedIds = processedIdsOverride || processedEventIds;
+    const isStaleRequest = () => requestGeneration !== requestGenerationRef.current;
 
     setStatus(FetchStatus.LOADING);
     setErrorMsg(null);
@@ -29,18 +34,15 @@ const App: React.FC = () => {
     try {
       // Fetch only for the selected county
       const events = await fetchPoliceEvents(county);
+      if (isStaleRequest()) return;
       
       if (events.length === 0) {
         setStatus(FetchStatus.SUCCESS);
-        // If it's a fresh county selection and no events found
-        if (articles.length === 0) {
-          // Keep success but empty
-        }
         return;
       }
 
       // Filter for new events only
-      const newEvents = events.filter(e => !processedEventIds.has(e.id));
+      const newEvents = events.filter(e => !processedIds.has(e.id));
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
@@ -48,6 +50,7 @@ const App: React.FC = () => {
 
         for (const event of eventsToProcess) {
           const article = await generateNewsArticle(event);
+          if (isStaleRequest()) return;
           if (article) {
             generatedArticles.push(article);
           }
@@ -62,31 +65,36 @@ const App: React.FC = () => {
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            generatedArticles.forEach(article => next.add(article.originalEventId));
             return next;
           });
+        } else {
+          throw new Error('Could not generate articles for fetched police events.');
         }
       }
       
       setStatus(FetchStatus.SUCCESS);
       setNextUpdate(POLL_INTERVAL);
     } catch (err) {
+      if (isStaleRequest()) return;
       console.error(err);
       setStatus(FetchStatus.ERROR);
       setErrorMsg("Ett fel uppstod vid hämtning av nyheter.");
     }
-  }, [selectedCounty, processedEventIds, articles.length]);
+  }, [selectedCounty, processedEventIds]);
 
   // Handle County Selection
   const handleCountySelect = (county: string) => {
+    requestGenerationRef.current += 1;
     setSelectedCounty(county);
     setArticles([]); // Clear old articles
     setProcessedEventIds(new Set()); // Reset tracking
     setNextUpdate(POLL_INTERVAL);
-    updateArticles(county);
+    updateArticles(county, new Set());
   };
 
   const handleReset = () => {
+    requestGenerationRef.current += 1;
     setSelectedCounty(null);
     setArticles([]);
     setProcessedEventIds(new Set());
