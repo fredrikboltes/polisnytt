@@ -20,6 +20,6 @@ export const fetchPoliceEvents = async (locationName?: string): Promise<PoliceEv
     return data;
   } catch (error) {
     console.error('Error fetching police events:', error);
-    return [];
+    throw error;
   }
 };

@@ -53,19 +53,21 @@ const App: React.FC = () => {
           }
         }
 
-        if (generatedArticles.length > 0) {
-          setArticles(prev => {
-            const combined = [...generatedArticles, ...prev];
-            return combined.sort((a, b) => 
-              new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-            );
-          });
-          setProcessedEventIds(prev => {
-            const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
-            return next;
-          });
+        if (generatedArticles.length === 0) {
+          throw new Error('Failed to generate articles for fetched police events.');
         }
+
+        setArticles(prev => {
+          const combined = [...generatedArticles, ...prev];
+          return combined.sort((a, b) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+        });
+        setProcessedEventIds(prev => {
+          const next = new Set(prev);
+          generatedArticles.forEach(article => next.add(article.originalEventId));
+          return next;
+        });
       }
       
       setStatus(FetchStatus.SUCCESS);
