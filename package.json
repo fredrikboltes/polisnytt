@@ -4,19 +4,20 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "NODE_ENV=production node server.mjs",
+    "test": "npm run build && node scripts/assert-no-client-secrets.mjs"
   },
   "dependencies": {
-    "react-dom": "^19.2.3",
     "@google/genai": "^1.34.0",
-    "react": "^19.2.3"
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^8.0.16"
   }
 }
