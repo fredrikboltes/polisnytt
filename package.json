@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "NODE_ENV=production node server.mjs",
+    "start": "NODE_ENV=production node server.mjs",
+    "test:security": "npm run build && node scripts/assert-no-client-secret.mjs"
   },
   "dependencies": {
     "react-dom": "^19.2.3",
