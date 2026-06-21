@@ -145,7 +145,9 @@ export const createArticleApiMiddleware = ({
       const article = await generateArticleFromEvent(payload.event, { ai, model });
       jsonResponse(res, 200, { article });
     } catch (error) {
-      console.error('Article generation failed:', error);
+      if (!error.statusCode) {
+        console.error('Article generation failed:', error);
+      }
       jsonResponse(res, error.statusCode || 500, {
         error: error.statusCode ? error.message : 'Failed to generate article',
       });
