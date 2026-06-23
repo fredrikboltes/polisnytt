@@ -12,16 +12,25 @@ const POLL_INTERVAL = 10 * 60 * 1000; // 10 minutes
 const App: React.FC = () => {
   const [selectedCounty, setSelectedCounty] = useState<string | null>(null);
   const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [processedEventIds, setProcessedEventIds] = useState<Set<number>>(new Set());
   const [status, setStatus] = useState<FetchStatus>(FetchStatus.IDLE);
   const [nextUpdate, setNextUpdate] = useState<number>(POLL_INTERVAL);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const timerRef = useRef<number | null>(null);
+  const selectedCountyRef = useRef<string | null>(null);
+  const processedEventIdsRef = useRef<Set<number>>(new Set());
+  const activeRequestIdRef = useRef(0);
 
   const updateArticles = useCallback(async (countyOverride?: string) => {
-    const county = countyOverride || selectedCounty;
+    const county = countyOverride || selectedCountyRef.current;
     if (!county) return;
+
+    const requestId = activeRequestIdRef.current + 1;
+    activeRequestIdRef.current = requestId;
+    const isCurrentRequest = () => (
+      activeRequestIdRef.current === requestId &&
+      selectedCountyRef.current === county
+    );
 
     setStatus(FetchStatus.LOADING);
     setErrorMsg(null);
@@ -29,27 +38,28 @@ const App: React.FC = () => {
     try {
       // Fetch only for the selected county
       const events = await fetchPoliceEvents(county);
+      if (!isCurrentRequest()) return;
       
       if (events.length === 0) {
         setStatus(FetchStatus.SUCCESS);
-        // If it's a fresh county selection and no events found
-        if (articles.length === 0) {
-          // Keep success but empty
-        }
         return;
       }
 
       // Filter for new events only
-      const newEvents = events.filter(e => !processedEventIds.has(e.id));
+      const newEvents = events.filter(e => !processedEventIdsRef.current.has(e.id));
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
+        const generatedEventIds: number[] = [];
         const eventsToProcess = newEvents.slice(0, 5);
 
         for (const event of eventsToProcess) {
           const article = await generateNewsArticle(event);
+          if (!isCurrentRequest()) return;
+
           if (article) {
             generatedArticles.push(article);
+            generatedEventIds.push(event.id);
           }
         }
 
@@ -60,36 +70,42 @@ const App: React.FC = () => {
               new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
             );
           });
-          setProcessedEventIds(prev => {
-            const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
-            return next;
-          });
+          const nextProcessedEventIds = new Set(processedEventIdsRef.current);
+          generatedEventIds.forEach(id => nextProcessedEventIds.add(id));
+          processedEventIdsRef.current = nextProcessedEventIds;
         }
       }
       
       setStatus(FetchStatus.SUCCESS);
       setNextUpdate(POLL_INTERVAL);
     } catch (err) {
+      if (!isCurrentRequest()) return;
+
       console.error(err);
       setStatus(FetchStatus.ERROR);
       setErrorMsg("Ett fel uppstod vid hämtning av nyheter.");
     }
-  }, [selectedCounty, processedEventIds, articles.length]);
+  }, []);
 
   // Handle County Selection
   const handleCountySelect = (county: string) => {
+    activeRequestIdRef.current += 1;
+    selectedCountyRef.current = county;
+    processedEventIdsRef.current = new Set();
     setSelectedCounty(county);
     setArticles([]); // Clear old articles
-    setProcessedEventIds(new Set()); // Reset tracking
     setNextUpdate(POLL_INTERVAL);
     updateArticles(county);
   };
 
   const handleReset = () => {
+    activeRequestIdRef.current += 1;
+    selectedCountyRef.current = null;
+    processedEventIdsRef.current = new Set();
     setSelectedCounty(null);
     setArticles([]);
-    setProcessedEventIds(new Set());
+    setStatus(FetchStatus.IDLE);
+    setErrorMsg(null);
   };
 
   // Setup Polling

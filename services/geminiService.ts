@@ -1,50 +1,46 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { PoliceEvent, NewsArticle } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+interface GeneratedArticlePayload {
+  title: string;
+  lead: string;
+  body: string;
+  category: string;
+}
+
+const isGeneratedArticlePayload = (value: unknown): value is GeneratedArticlePayload => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const article = value as Record<string, unknown>;
+  return (
+    typeof article.title === "string" &&
+    typeof article.lead === "string" &&
+    typeof article.body === "string" &&
+    typeof article.category === "string"
+  );
+};
 
 export const generateNewsArticle = async (event: PoliceEvent): Promise<NewsArticle | null> => {
   try {
-    const prompt = `
-      Förvandla följande polisrapport till en professionell, objektiv men engagerande nyhetsartikel på svenska.
-      
-      Händelseinfo:
-      Titel: ${event.name}
-      Sammanfattning: ${event.summary}
-      Plats: ${event.location.name}
-      Typ: ${event.type}
-      Tid: ${event.datetime}
-
-      Skapa en artikel som innehåller:
-      1. En slagkraftig rubrik (title).
-      2. En sammanfattande ingress (lead).
-      3. En detaljerad brödtext (body).
-      4. En passande kategori (category) t.ex. Blåljus, Brott, Trafikolycka.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            lead: { type: Type.STRING },
-            body: { type: Type.STRING },
-            category: { type: Type.STRING },
-          },
-          required: ["title", "lead", "body", "category"]
-        },
+    const response = await fetch("/api/generate-news-article", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({ event }),
     });
 
-    const result = JSON.parse(response.text || "{}");
-    
-    // Generate a random-ish placeholder image based on category
-    const categoryQuery = result.category.toLowerCase();
+    if (!response.ok) {
+      throw new Error(`Article generation failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!isGeneratedArticlePayload(result)) {
+      throw new Error("Article generation returned an invalid payload");
+    }
+
     const imageUrl = `https://picsum.photos/seed/${event.id}/800/450`;
 
     return {
