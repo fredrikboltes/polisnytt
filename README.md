@@ -15,6 +15,8 @@ View your app in AI Studio: https://ai.studio/apps/drive/1jYfRQHM0T0xsspp_QLlEKK
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) or your shell environment to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+`npm run dev` starts a small Node server that keeps the Gemini key server-side and proxies article generation through `/api/generate-news-article`.
