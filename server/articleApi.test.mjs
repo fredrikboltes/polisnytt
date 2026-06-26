@@ -101,16 +101,23 @@ test('article API rejects invalid request bodies before generating', async () =>
 });
 
 test('article API does not expose backend errors to clients', async () => {
+  const originalConsoleError = console.error;
+  console.error = () => {};
+
   const handler = createArticleApiHandler({
     generateArticle: async () => {
       throw new Error('secret backend detail');
     },
   });
 
-  const response = await callHandler(handler, {
-    body: JSON.stringify({ event }),
-  });
+  try {
+    const response = await callHandler(handler, {
+      body: JSON.stringify({ event }),
+    });
 
-  assert.equal(response.statusCode, 500);
-  assert.deepEqual(response.json, { error: 'Could not generate article' });
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(response.json, { error: 'Could not generate article' });
+  } finally {
+    console.error = originalConsoleError;
+  }
 });
