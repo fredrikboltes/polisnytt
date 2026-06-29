@@ -55,14 +55,18 @@ const App: React.FC = () => {
 
         if (generatedArticles.length > 0) {
           setArticles(prev => {
-            const combined = [...generatedArticles, ...prev];
+            const existingEventIds = new Set(prev.map(article => article.originalEventId));
+            const uniqueGeneratedArticles = generatedArticles.filter(
+              article => !existingEventIds.has(article.originalEventId)
+            );
+            const combined = [...uniqueGeneratedArticles, ...prev];
             return combined.sort((a, b) => 
               new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
             );
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            generatedArticles.forEach(article => next.add(article.originalEventId));
             return next;
           });
         }
