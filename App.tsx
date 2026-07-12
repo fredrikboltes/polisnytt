@@ -62,7 +62,7 @@ const App: React.FC = () => {
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            generatedArticles.forEach(article => next.add(article.originalEventId));
             return next;
           });
         }
