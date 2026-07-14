@@ -2,6 +2,7 @@ import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { installArticleApiMiddleware } from './server/articleApi.mjs';
+import { installPoliceApiMiddleware } from './server/policeApi.mjs';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
@@ -15,12 +16,14 @@ export default defineConfig(({ mode }) => {
       plugins: [
         react(),
         {
-          name: 'article-api',
+          name: 'server-apis',
           configureServer(server) {
             installArticleApiMiddleware(server.middlewares, articleApiOptions);
+            installPoliceApiMiddleware(server.middlewares);
           },
           configurePreviewServer(server) {
             installArticleApiMiddleware(server.middlewares, articleApiOptions);
+            installPoliceApiMiddleware(server.middlewares);
           },
         },
       ],
