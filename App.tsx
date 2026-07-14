@@ -18,10 +18,12 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const timerRef = useRef<number | null>(null);
+  const requestIdRef = useRef(0);
 
   const updateArticles = useCallback(async (countyOverride?: string) => {
     const county = countyOverride || selectedCounty;
     if (!county) return;
+    const requestId = ++requestIdRef.current;
 
     setStatus(FetchStatus.LOADING);
     setErrorMsg(null);
@@ -29,6 +31,7 @@ const App: React.FC = () => {
     try {
       // Fetch only for the selected county
       const events = await fetchPoliceEvents(county);
+      if (requestId !== requestIdRef.current) return;
       
       if (events.length === 0) {
         setStatus(FetchStatus.SUCCESS);
@@ -44,12 +47,20 @@ const App: React.FC = () => {
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
+        const successfullyProcessedIds: number[] = [];
         const eventsToProcess = newEvents.slice(0, 5);
+        let failedGenerationCount = 0;
 
         for (const event of eventsToProcess) {
-          const article = await generateNewsArticle(event);
-          if (article) {
+          try {
+            const article = await generateNewsArticle(event);
+            if (requestId !== requestIdRef.current) return;
             generatedArticles.push(article);
+            successfullyProcessedIds.push(event.id);
+          } catch (error) {
+            if (requestId !== requestIdRef.current) return;
+            console.error("Error generating news article with Gemini:", error);
+            failedGenerationCount += 1;
           }
         }
 
@@ -62,15 +73,23 @@ const App: React.FC = () => {
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            successfullyProcessedIds.forEach(id => next.add(id));
             return next;
           });
+        }
+
+        if (failedGenerationCount > 0) {
+          if (generatedArticles.length === 0) {
+            throw new Error('No articles could be generated');
+          }
+          setErrorMsg("Vissa händelser kunde inte bearbetas och försöks igen senare.");
         }
       }
       
       setStatus(FetchStatus.SUCCESS);
       setNextUpdate(POLL_INTERVAL);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       console.error(err);
       setStatus(FetchStatus.ERROR);
       setErrorMsg("Ett fel uppstod vid hämtning av nyheter.");
@@ -87,6 +106,7 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
+    requestIdRef.current += 1;
     setSelectedCounty(null);
     setArticles([]);
     setProcessedEventIds(new Set());
