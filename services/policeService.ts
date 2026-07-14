@@ -6,20 +6,21 @@ import { PoliceEvent } from '../types';
  * Can filter by location (län).
  */
 export const fetchPoliceEvents = async (locationName?: string): Promise<PoliceEvent[]> => {
-  try {
-    const url = new URL('https://polisen.se/api/events');
-    if (locationName) {
-      url.searchParams.append('locationname', locationName);
-    }
-    
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`Failed to fetch events: ${response.statusText}`);
-    }
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error fetching police events:', error);
-    return [];
+  const searchParams = new URLSearchParams();
+  if (locationName) {
+    searchParams.set('locationname', locationName);
   }
+
+  const query = searchParams.toString();
+  const response = await fetch(`/api/police-events${query ? `?${query}` : ''}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch events: ${response.statusText}`);
+  }
+
+  const data: unknown = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error('Police events response was not an array');
+  }
+
+  return data as PoliceEvent[];
 };
