@@ -96,6 +96,14 @@ const buildPrompt = event => `
   4. En passande kategori (category) t.ex. Blåljus, Brott, Trafikolycka.
 `;
 
+/**
+ * @param {{
+ *   apiKey?: string,
+ *   createClient?: (key: string) => GoogleGenAI | {
+ *     models: { generateContent: (request: object) => Promise<{ text?: string }> }
+ *   }
+ * }} [options]
+ */
 export const createArticleApiHandler = ({
   apiKey,
   createClient = key => new GoogleGenAI({ apiKey: key }),
