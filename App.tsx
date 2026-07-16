@@ -18,10 +18,13 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const timerRef = useRef<number | null>(null);
+  const requestGenerationRef = useRef(0);
 
   const updateArticles = useCallback(async (countyOverride?: string) => {
     const county = countyOverride || selectedCounty;
     if (!county) return;
+    const requestGeneration = ++requestGenerationRef.current;
+    const seenEventIds = countyOverride ? new Set<number>() : processedEventIds;
 
     setStatus(FetchStatus.LOADING);
     setErrorMsg(null);
@@ -29,27 +32,27 @@ const App: React.FC = () => {
     try {
       // Fetch only for the selected county
       const events = await fetchPoliceEvents(county);
+      if (requestGeneration !== requestGenerationRef.current) return;
       
       if (events.length === 0) {
         setStatus(FetchStatus.SUCCESS);
-        // If it's a fresh county selection and no events found
-        if (articles.length === 0) {
-          // Keep success but empty
-        }
         return;
       }
 
       // Filter for new events only
-      const newEvents = events.filter(e => !processedEventIds.has(e.id));
+      const newEvents = events.filter(e => !seenEventIds.has(e.id));
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
+        const successfulEventIds: number[] = [];
         const eventsToProcess = newEvents.slice(0, 5);
 
         for (const event of eventsToProcess) {
           const article = await generateNewsArticle(event);
+          if (requestGeneration !== requestGenerationRef.current) return;
           if (article) {
             generatedArticles.push(article);
+            successfulEventIds.push(event.id);
           }
         }
 
@@ -62,20 +65,23 @@ const App: React.FC = () => {
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            successfulEventIds.forEach(id => next.add(id));
             return next;
           });
+        } else {
+          throw new Error('Article generation failed for every police event.');
         }
       }
       
       setStatus(FetchStatus.SUCCESS);
       setNextUpdate(POLL_INTERVAL);
     } catch (err) {
+      if (requestGeneration !== requestGenerationRef.current) return;
       console.error(err);
       setStatus(FetchStatus.ERROR);
       setErrorMsg("Ett fel uppstod vid hämtning av nyheter.");
     }
-  }, [selectedCounty, processedEventIds, articles.length]);
+  }, [selectedCounty, processedEventIds]);
 
   // Handle County Selection
   const handleCountySelect = (county: string) => {
@@ -87,6 +93,7 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
+    requestGenerationRef.current += 1;
     setSelectedCounty(null);
     setArticles([]);
     setProcessedEventIds(new Set());
