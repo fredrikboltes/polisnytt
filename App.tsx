@@ -18,10 +18,14 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const timerRef = useRef<number | null>(null);
+  const requestTokenRef = useRef(0);
 
   const updateArticles = useCallback(async (countyOverride?: string) => {
     const county = countyOverride || selectedCounty;
     if (!county) return;
+    const requestToken = ++requestTokenRef.current;
+    const isCurrentRequest = () => requestToken === requestTokenRef.current;
+    const knownProcessedEventIds = countyOverride ? new Set<number>() : processedEventIds;
 
     setStatus(FetchStatus.LOADING);
     setErrorMsg(null);
@@ -29,28 +33,36 @@ const App: React.FC = () => {
     try {
       // Fetch only for the selected county
       const events = await fetchPoliceEvents(county);
-      
+      if (!isCurrentRequest()) return;
+
       if (events.length === 0) {
         setStatus(FetchStatus.SUCCESS);
-        // If it's a fresh county selection and no events found
-        if (articles.length === 0) {
-          // Keep success but empty
-        }
+        setNextUpdate(POLL_INTERVAL);
         return;
       }
 
       // Filter for new events only
-      const newEvents = events.filter(e => !processedEventIds.has(e.id));
+      const newEvents = events.filter(e => !knownProcessedEventIds.has(e.id));
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
+        const generatedEventIds: number[] = [];
         const eventsToProcess = newEvents.slice(0, 5);
 
         for (const event of eventsToProcess) {
-          const article = await generateNewsArticle(event);
-          if (article) {
+          try {
+            const article = await generateNewsArticle(event);
+            if (!isCurrentRequest()) return;
             generatedArticles.push(article);
+            generatedEventIds.push(event.id);
+          } catch (error) {
+            if (!isCurrentRequest()) return;
+            console.error(`Failed to generate article for event ${event.id}:`, error);
           }
+        }
+
+        if (generatedArticles.length === 0) {
+          throw new Error('No articles could be generated');
         }
 
         if (generatedArticles.length > 0) {
@@ -62,7 +74,7 @@ const App: React.FC = () => {
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            generatedEventIds.forEach(id => next.add(id));
             return next;
           });
         }
@@ -71,11 +83,12 @@ const App: React.FC = () => {
       setStatus(FetchStatus.SUCCESS);
       setNextUpdate(POLL_INTERVAL);
     } catch (err) {
+      if (!isCurrentRequest()) return;
       console.error(err);
       setStatus(FetchStatus.ERROR);
       setErrorMsg("Ett fel uppstod vid hämtning av nyheter.");
     }
-  }, [selectedCounty, processedEventIds, articles.length]);
+  }, [selectedCounty, processedEventIds]);
 
   // Handle County Selection
   const handleCountySelect = (county: string) => {
@@ -87,6 +100,7 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
+    requestTokenRef.current += 1;
     setSelectedCounty(null);
     setArticles([]);
     setProcessedEventIds(new Set());
