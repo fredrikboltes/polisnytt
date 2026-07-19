@@ -11,7 +11,10 @@ afterEach(async () => {
 });
 
 const startServer = async (options) => {
-  const middleware = createArticleApiMiddleware(options);
+  const middleware = createArticleApiMiddleware({
+    fetchPoliceEvents: async () => [policeEvent],
+    ...options,
+  });
   const server = createServer((req, res) => {
     middleware(req, res, () => {
       res.statusCode = 404;
@@ -58,7 +61,7 @@ test('generates an article without returning server configuration', async () => 
   const response = await fetch(`${baseUrl}/api/generate-article`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event: policeEvent }),
+    body: JSON.stringify({ eventId: policeEvent.id }),
   });
   const article = await response.json();
 
@@ -81,7 +84,7 @@ test('rejects invalid requests before calling the provider', async () => {
   const response = await fetch(`${baseUrl}/api/generate-article`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event: { id: 123 } }),
+    body: JSON.stringify({ eventId: '123' }),
   });
 
   assert.equal(response.status, 400);
@@ -100,7 +103,7 @@ test('returns a sanitized error when the provider fails', async (context) => {
   const response = await fetch(`${baseUrl}/api/generate-article`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event: policeEvent }),
+    body: JSON.stringify({ eventId: policeEvent.id }),
   });
   const body = await response.text();
 
@@ -113,7 +116,7 @@ test('fails safely when the API key is not configured', async () => {
   const response = await fetch(`${baseUrl}/api/generate-article`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event: policeEvent }),
+    body: JSON.stringify({ eventId: policeEvent.id }),
   });
 
   assert.equal(response.status, 503);
@@ -124,4 +127,87 @@ test('does not intercept unrelated routes', async () => {
   const response = await fetch(`${baseUrl}/`);
 
   assert.equal(response.status, 404);
+});
+
+test('rejects event IDs that are not in the official police feed', async () => {
+  let providerCalled = false;
+  const baseUrl = await startServer({
+    fetchPoliceEvents: async () => [],
+    generateContent: async () => {
+      providerCalled = true;
+    },
+  });
+
+  const response = await fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId: 999999 }),
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(providerCalled, false);
+});
+
+test('caches generated articles to prevent repeated provider charges', async () => {
+  let providerCalls = 0;
+  const baseUrl = await startServer({
+    generateContent: async () => {
+      providerCalls++;
+      return {
+        text: JSON.stringify({
+          title: 'Olycka i Stockholm',
+          lead: 'Två fordon kolliderade på söndagen.',
+          body: 'Polisen arbetar på platsen.',
+          category: 'Trafikolycka',
+        }),
+      };
+    },
+  });
+  const request = () => fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId: policeEvent.id }),
+  });
+
+  const first = await request();
+  const second = await request();
+
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(providerCalls, 1);
+  assert.deepEqual(await second.json(), await first.json());
+});
+
+test('rate-limits uncached generation requests from one client', async () => {
+  const events = Array.from({ length: 11 }, (_, index) => ({
+    ...policeEvent,
+    id: index + 1,
+  }));
+  const baseUrl = await startServer({
+    fetchPoliceEvents: async () => events,
+    generateContent: async () => ({
+      text: JSON.stringify({
+        title: 'Polisnotis',
+        lead: 'En händelse har inträffat.',
+        body: 'Polisen arbetar med händelsen.',
+        category: 'Blåljus',
+      }),
+    }),
+  });
+
+  for (const event of events.slice(0, 10)) {
+    const response = await fetch(`${baseUrl}/api/generate-article`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId: event.id }),
+    });
+    assert.equal(response.status, 200);
+  }
+
+  const limitedResponse = await fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId: events[10].id }),
+  });
+  assert.equal(limitedResponse.status, 429);
 });

@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const timerRef = useRef<number | null>(null);
   const selectedCountyRef = useRef<string | null>(null);
   const processedEventIdsRef = useRef<Set<number>>(new Set());
+  const failedEventIdsRef = useRef<Set<number>>(new Set());
   const requestIdRef = useRef(0);
 
   const updateArticles = useCallback(async (countyOverride?: string) => {
@@ -45,7 +46,12 @@ const App: React.FC = () => {
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
-        const eventsToProcess = newEvents.slice(0, 5);
+        const eventsToProcess = [...newEvents]
+          .sort((a, b) =>
+            Number(failedEventIdsRef.current.has(a.id)) -
+            Number(failedEventIdsRef.current.has(b.id))
+          )
+          .slice(0, 5);
 
         for (const event of eventsToProcess) {
           if (requestId !== requestIdRef.current) return;
@@ -53,7 +59,10 @@ const App: React.FC = () => {
             const article = await generateNewsArticle(event);
             if (requestId !== requestIdRef.current) return;
             generatedArticles.push(article);
+            failedEventIdsRef.current.delete(event.id);
           } catch {
+            if (requestId !== requestIdRef.current) return;
+            failedEventIdsRef.current.add(event.id);
             console.error(`Article generation failed for police event ${event.id}`);
           }
         }
@@ -92,6 +101,7 @@ const App: React.FC = () => {
   const handleCountySelect = (county: string) => {
     selectedCountyRef.current = county;
     processedEventIdsRef.current = new Set();
+    failedEventIdsRef.current = new Set();
     setSelectedCounty(county);
     setArticles([]); // Clear old articles
     setNextUpdate(POLL_INTERVAL);
@@ -102,6 +112,7 @@ const App: React.FC = () => {
     requestIdRef.current++;
     selectedCountyRef.current = null;
     processedEventIdsRef.current = new Set();
+    failedEventIdsRef.current = new Set();
     setSelectedCounty(null);
     setArticles([]);
     setStatus(FetchStatus.IDLE);

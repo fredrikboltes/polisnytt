@@ -2,6 +2,12 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 const API_PATH = '/api/generate-article';
 const MAX_BODY_BYTES = 64 * 1024;
+const POLICE_EVENTS_URL = 'https://polisen.se/api/events';
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 10 * 60 * 1000;
+const MAX_TRACKED_CLIENTS = 1000;
+const MAX_CACHED_ARTICLES = 1000;
 
 class RequestError extends Error {
   constructor(status, message) {
@@ -104,17 +110,108 @@ const generationRequest = (event) => ({
   },
 });
 
+const fetchCurrentPoliceEvents = async () => {
+  const response = await fetch(POLICE_EVENTS_URL);
+  if (!response.ok) {
+    throw new Error(`Police API returned status ${response.status}`);
+  }
+
+  const events = await response.json();
+  if (!Array.isArray(events)) {
+    throw new Error('Police API returned an invalid response');
+  }
+
+  return events.filter(isPoliceEvent);
+};
+
 export const createArticleApiMiddleware = ({
   apiKey,
   generateContent: generateContentOverride,
+  fetchPoliceEvents = fetchCurrentPoliceEvents,
+  now = Date.now,
 } = {}) => {
   let client;
+  let policeEvents = [];
+  let policeEventsExpireAt = 0;
+  const articleCache = new Map();
+  const inFlightArticles = new Map();
+  const rateLimits = new Map();
   const generateContent =
     generateContentOverride ||
     ((request) => {
       client ||= new GoogleGenAI({ apiKey });
       return client.models.generateContent(request);
     });
+
+  const findPoliceEvent = async (eventId) => {
+    if (now() >= policeEventsExpireAt) {
+      policeEvents = await fetchPoliceEvents();
+      policeEventsExpireAt = now() + CACHE_TTL_MS;
+    }
+    return policeEvents.find(event => event.id === eventId);
+  };
+
+  const isRateLimited = (req) => {
+    const currentTime = now();
+    const clientAddress = req.socket.remoteAddress || 'unknown';
+    const current = rateLimits.get(clientAddress);
+
+    if (!current || current.resetAt <= currentTime) {
+      if (rateLimits.size >= MAX_TRACKED_CLIENTS) {
+        for (const [address, limit] of rateLimits) {
+          if (limit.resetAt <= currentTime) rateLimits.delete(address);
+        }
+        if (rateLimits.size >= MAX_TRACKED_CLIENTS) {
+          rateLimits.delete(rateLimits.keys().next().value);
+        }
+      }
+      rateLimits.set(clientAddress, { count: 1, resetAt: currentTime + RATE_WINDOW_MS });
+      return false;
+    }
+
+    if (current.count >= RATE_LIMIT) return true;
+    current.count++;
+    return false;
+  };
+
+  const cacheArticle = (eventId, article) => {
+    const currentTime = now();
+    if (articleCache.size >= MAX_CACHED_ARTICLES) {
+      for (const [cachedId, cached] of articleCache) {
+        if (cached.expiresAt <= currentTime) articleCache.delete(cachedId);
+      }
+      if (articleCache.size >= MAX_CACHED_ARTICLES) {
+        articleCache.delete(articleCache.keys().next().value);
+      }
+    }
+    articleCache.set(eventId, { article, expiresAt: currentTime + CACHE_TTL_MS });
+  };
+
+  const generateArticle = async (event) => {
+    const response = await generateContent(generationRequest(event));
+    let generated;
+    try {
+      generated = JSON.parse(response.text || '');
+    } catch {
+      throw new Error('Provider returned invalid JSON');
+    }
+
+    if (!isGeneratedArticle(generated)) {
+      throw new Error('Provider returned an invalid article');
+    }
+
+    return {
+      id: `article-${event.id}-${Date.now()}`,
+      originalEventId: event.id,
+      title: generated.title,
+      lead: generated.lead,
+      body: generated.body,
+      category: generated.category,
+      location: event.location.name,
+      timestamp: event.datetime,
+      imageUrl: `https://picsum.photos/seed/${event.id}/800/450`,
+    };
+  };
 
   return async (req, res, next) => {
     const pathname = new URL(req.url || '/', 'http://localhost').pathname;
@@ -136,33 +233,41 @@ export const createArticleApiMiddleware = ({
 
     try {
       const body = await readJsonBody(req);
-      if (!isPoliceEvent(body?.event)) {
-        throw new RequestError(400, 'A valid police event is required');
+      if (!Number.isInteger(body?.eventId)) {
+        throw new RequestError(400, 'A valid police event ID is required');
       }
 
-      const response = await generateContent(generationRequest(body.event));
-      let generated;
+      const cached = articleCache.get(body.eventId);
+      if (cached && cached.expiresAt > now()) {
+        sendJson(res, 200, cached.article);
+        return;
+      }
+      if (cached) articleCache.delete(body.eventId);
+
+      if (isRateLimited(req)) {
+        throw new RequestError(429, 'Too many article generation requests');
+      }
+
+      const event = await findPoliceEvent(body.eventId);
+      if (!event) {
+        throw new RequestError(404, 'Police event was not found');
+      }
+
+      let articlePromise = inFlightArticles.get(event.id);
+      if (!articlePromise) {
+        articlePromise = generateArticle(event);
+        inFlightArticles.set(event.id, articlePromise);
+      }
+
       try {
-        generated = JSON.parse(response.text || '');
-      } catch {
-        throw new Error('Provider returned invalid JSON');
+        const article = await articlePromise;
+        cacheArticle(event.id, article);
+        sendJson(res, 200, article);
+      } finally {
+        if (inFlightArticles.get(event.id) === articlePromise) {
+          inFlightArticles.delete(event.id);
+        }
       }
-
-      if (!isGeneratedArticle(generated)) {
-        throw new Error('Provider returned an invalid article');
-      }
-
-      sendJson(res, 200, {
-        id: `article-${body.event.id}-${Date.now()}`,
-        originalEventId: body.event.id,
-        title: generated.title,
-        lead: generated.lead,
-        body: generated.body,
-        category: generated.category,
-        location: body.event.location.name,
-        timestamp: body.event.datetime,
-        imageUrl: `https://picsum.photos/seed/${body.event.id}/800/450`,
-      });
     } catch (error) {
       if (error instanceof RequestError) {
         sendJson(res, error.status, { error: error.message });

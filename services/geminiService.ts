@@ -7,7 +7,7 @@ export const generateNewsArticle = async (event: PoliceEvent): Promise<NewsArtic
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ event }),
+    body: JSON.stringify({ eventId: event.id }),
   });
 
   if (!response.ok) {
