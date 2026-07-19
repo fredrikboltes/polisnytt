@@ -12,84 +12,100 @@ const POLL_INTERVAL = 10 * 60 * 1000; // 10 minutes
 const App: React.FC = () => {
   const [selectedCounty, setSelectedCounty] = useState<string | null>(null);
   const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [processedEventIds, setProcessedEventIds] = useState<Set<number>>(new Set());
   const [status, setStatus] = useState<FetchStatus>(FetchStatus.IDLE);
   const [nextUpdate, setNextUpdate] = useState<number>(POLL_INTERVAL);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const timerRef = useRef<number | null>(null);
+  const selectedCountyRef = useRef<string | null>(null);
+  const processedEventIdsRef = useRef<Set<number>>(new Set());
+  const requestIdRef = useRef(0);
 
   const updateArticles = useCallback(async (countyOverride?: string) => {
-    const county = countyOverride || selectedCounty;
+    const county = countyOverride || selectedCountyRef.current;
     if (!county) return;
 
+    const requestId = ++requestIdRef.current;
     setStatus(FetchStatus.LOADING);
     setErrorMsg(null);
     
     try {
       // Fetch only for the selected county
       const events = await fetchPoliceEvents(county);
+      if (requestId !== requestIdRef.current) return;
       
       if (events.length === 0) {
         setStatus(FetchStatus.SUCCESS);
-        // If it's a fresh county selection and no events found
-        if (articles.length === 0) {
-          // Keep success but empty
-        }
+        setNextUpdate(POLL_INTERVAL);
         return;
       }
 
       // Filter for new events only
-      const newEvents = events.filter(e => !processedEventIds.has(e.id));
+      const newEvents = events.filter(e => !processedEventIdsRef.current.has(e.id));
       
       if (newEvents.length > 0) {
         const generatedArticles: NewsArticle[] = [];
         const eventsToProcess = newEvents.slice(0, 5);
 
         for (const event of eventsToProcess) {
-          const article = await generateNewsArticle(event);
-          if (article) {
+          if (requestId !== requestIdRef.current) return;
+          try {
+            const article = await generateNewsArticle(event);
+            if (requestId !== requestIdRef.current) return;
             generatedArticles.push(article);
+          } catch {
+            console.error(`Article generation failed for police event ${event.id}`);
           }
         }
 
         if (generatedArticles.length > 0) {
           setArticles(prev => {
-            const combined = [...generatedArticles, ...prev];
+            const existingEventIds = new Set(prev.map(article => article.originalEventId));
+            const uniqueArticles = generatedArticles.filter(
+              article => !existingEventIds.has(article.originalEventId)
+            );
+            const combined = [...uniqueArticles, ...prev];
             return combined.sort((a, b) => 
               new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
             );
           });
-          setProcessedEventIds(prev => {
-            const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
-            return next;
-          });
+          const nextProcessedIds = new Set(processedEventIdsRef.current);
+          generatedArticles.forEach(article => nextProcessedIds.add(article.originalEventId));
+          processedEventIdsRef.current = nextProcessedIds;
+        } else {
+          throw new Error('No police events could be converted into articles');
         }
       }
       
+      if (requestId !== requestIdRef.current) return;
       setStatus(FetchStatus.SUCCESS);
       setNextUpdate(POLL_INTERVAL);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       console.error(err);
       setStatus(FetchStatus.ERROR);
       setErrorMsg("Ett fel uppstod vid hämtning av nyheter.");
     }
-  }, [selectedCounty, processedEventIds, articles.length]);
+  }, []);
 
   // Handle County Selection
   const handleCountySelect = (county: string) => {
+    selectedCountyRef.current = county;
+    processedEventIdsRef.current = new Set();
     setSelectedCounty(county);
     setArticles([]); // Clear old articles
-    setProcessedEventIds(new Set()); // Reset tracking
     setNextUpdate(POLL_INTERVAL);
     updateArticles(county);
   };
 
   const handleReset = () => {
+    requestIdRef.current++;
+    selectedCountyRef.current = null;
+    processedEventIdsRef.current = new Set();
     setSelectedCounty(null);
     setArticles([]);
-    setProcessedEventIds(new Set());
+    setStatus(FetchStatus.IDLE);
+    setErrorMsg(null);
   };
 
   // Setup Polling
