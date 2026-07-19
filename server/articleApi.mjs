@@ -133,6 +133,7 @@ export const createArticleApiMiddleware = ({
   let client;
   let policeEvents = [];
   let policeEventsExpireAt = 0;
+  let policeEventsPromise;
   const articleCache = new Map();
   const inFlightArticles = new Map();
   const rateLimits = new Map();
@@ -145,8 +146,18 @@ export const createArticleApiMiddleware = ({
 
   const findPoliceEvent = async (eventId) => {
     if (now() >= policeEventsExpireAt) {
-      policeEvents = await fetchPoliceEvents();
-      policeEventsExpireAt = now() + CACHE_TTL_MS;
+      policeEventsPromise ||= Promise.resolve(fetchPoliceEvents())
+        .then(events => {
+          if (!Array.isArray(events)) {
+            throw new Error('Police API returned an invalid response');
+          }
+          policeEvents = events.filter(isPoliceEvent);
+          policeEventsExpireAt = now() + CACHE_TTL_MS;
+        })
+        .finally(() => {
+          policeEventsPromise = undefined;
+        });
+      await policeEventsPromise;
     }
     return policeEvents.find(event => event.id === eventId);
   };
@@ -244,10 +255,6 @@ export const createArticleApiMiddleware = ({
       }
       if (cached) articleCache.delete(body.eventId);
 
-      if (isRateLimited(req)) {
-        throw new RequestError(429, 'Too many article generation requests');
-      }
-
       const event = await findPoliceEvent(body.eventId);
       if (!event) {
         throw new RequestError(404, 'Police event was not found');
@@ -255,6 +262,9 @@ export const createArticleApiMiddleware = ({
 
       let articlePromise = inFlightArticles.get(event.id);
       if (!articlePromise) {
+        if (isRateLimited(req)) {
+          throw new RequestError(429, 'Too many article generation requests');
+        }
         articlePromise = generateArticle(event);
         inFlightArticles.set(event.id, articlePromise);
       }
