@@ -148,11 +148,12 @@ test('rejects event IDs that are not in the official police feed', async () => {
   assert.equal(providerCalled, false);
 });
 
-test('caches generated articles to prevent repeated provider charges', async () => {
+test('deduplicates concurrent requests and caches the generated article', async () => {
   let providerCalls = 0;
   const baseUrl = await startServer({
     generateContent: async () => {
       providerCalls++;
+      await new Promise(resolve => setTimeout(resolve, 10));
       return {
         text: JSON.stringify({
           title: 'Olycka i Stockholm',
@@ -169,13 +170,18 @@ test('caches generated articles to prevent repeated provider charges', async () 
     body: JSON.stringify({ eventId: policeEvent.id }),
   });
 
-  const first = await request();
-  const second = await request();
+  const concurrentResponses = await Promise.all(
+    Array.from({ length: 11 }, () => request())
+  );
+  const cachedResponse = await request();
+  const articles = await Promise.all(
+    [...concurrentResponses, cachedResponse].map(response => response.json())
+  );
 
-  assert.equal(first.status, 200);
-  assert.equal(second.status, 200);
+  assert.equal(concurrentResponses.every(response => response.status === 200), true);
+  assert.equal(cachedResponse.status, 200);
   assert.equal(providerCalls, 1);
-  assert.deepEqual(await second.json(), await first.json());
+  assert.equal(articles.every(article => article.id === articles[0].id), true);
 });
 
 test('rate-limits uncached generation requests from one client', async () => {
