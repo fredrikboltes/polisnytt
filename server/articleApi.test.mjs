@@ -185,12 +185,13 @@ test('deduplicates concurrent requests and caches the generated article', async 
 });
 
 test('rate-limits uncached generation requests from one client', async () => {
-  const events = Array.from({ length: 11 }, (_, index) => ({
+  const events = Array.from({ length: 4 }, (_, index) => ({
     ...policeEvent,
     id: index + 1,
   }));
   const baseUrl = await startServer({
     fetchPoliceEvents: async () => events,
+    rateLimit: 2,
     generateContent: async () => ({
       text: JSON.stringify({
         title: 'Polisnotis',
@@ -201,10 +202,13 @@ test('rate-limits uncached generation requests from one client', async () => {
     }),
   });
 
-  for (const event of events.slice(0, 10)) {
+  for (const event of events.slice(0, 2)) {
     const response = await fetch(`${baseUrl}/api/generate-article`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '203.0.113.10',
+      },
       body: JSON.stringify({ eventId: event.id }),
     });
     assert.equal(response.status, 200);
@@ -212,8 +216,21 @@ test('rate-limits uncached generation requests from one client', async () => {
 
   const limitedResponse = await fetch(`${baseUrl}/api/generate-article`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ eventId: events[10].id }),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Forwarded-For': '203.0.113.10',
+    },
+    body: JSON.stringify({ eventId: events[2].id }),
   });
   assert.equal(limitedResponse.status, 429);
+
+  const otherClientResponse = await fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Forwarded-For': '198.51.100.20',
+    },
+    body: JSON.stringify({ eventId: events[3].id }),
+  });
+  assert.equal(otherClientResponse.status, 200);
 });
