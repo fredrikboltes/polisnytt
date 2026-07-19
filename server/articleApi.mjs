@@ -4,7 +4,7 @@ const API_PATH = '/api/generate-article';
 const MAX_BODY_BYTES = 64 * 1024;
 const POLICE_EVENTS_URL = 'https://polisen.se/api/events';
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const RATE_LIMIT = 10;
+const RATE_LIMIT = 25;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TRACKED_CLIENTS = 1000;
 const MAX_CACHED_ARTICLES = 1000;
@@ -75,6 +75,39 @@ const isGeneratedArticle = (article) =>
   isNonEmptyString(article.body) &&
   isNonEmptyString(article.category);
 
+const isTrustedProxyAddress = (address) => {
+  const normalized = address.toLowerCase().replace(/^::ffff:/, '');
+  if (
+    normalized === '::1' ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('127.') ||
+    normalized.startsWith('10.') ||
+    normalized.startsWith('192.168.')
+  ) {
+    return true;
+  }
+
+  const match = normalized.match(/^172\.(\d{1,3})\./);
+  return match !== null && Number(match[1]) >= 16 && Number(match[1]) <= 31;
+};
+
+const getClientAddress = (req) => {
+  const remoteAddress = req.socket.remoteAddress || 'unknown';
+  if (!isTrustedProxyAddress(remoteAddress)) return remoteAddress;
+
+  const header = req.headers['x-forwarded-for'];
+  const forwarded = (Array.isArray(header) ? header.join(',') : header || '')
+    .split(',')
+    .map(address => address.trim())
+    .filter(address => address.length <= 64 && /^[a-f\d:.]+$/i.test(address));
+
+  for (let index = forwarded.length - 1; index >= 0; index--) {
+    if (!isTrustedProxyAddress(forwarded[index])) return forwarded[index];
+  }
+  return forwarded[0] || remoteAddress;
+};
+
 const createPrompt = (event) => `
 Förvandla följande polisrapport till en professionell, objektiv men engagerande nyhetsartikel på svenska.
 
@@ -129,6 +162,7 @@ export const createArticleApiMiddleware = ({
   generateContent: generateContentOverride,
   fetchPoliceEvents = fetchCurrentPoliceEvents,
   now = Date.now,
+  rateLimit = RATE_LIMIT,
 } = {}) => {
   let client;
   let policeEvents = [];
@@ -164,7 +198,7 @@ export const createArticleApiMiddleware = ({
 
   const isRateLimited = (req) => {
     const currentTime = now();
-    const clientAddress = req.socket.remoteAddress || 'unknown';
+    const clientAddress = getClientAddress(req);
     const current = rateLimits.get(clientAddress);
 
     if (!current || current.resetAt <= currentTime) {
@@ -180,7 +214,7 @@ export const createArticleApiMiddleware = ({
       return false;
     }
 
-    if (current.count >= RATE_LIMIT) return true;
+    if (current.count >= rateLimit) return true;
     current.count++;
     return false;
   };
