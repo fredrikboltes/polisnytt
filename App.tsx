@@ -47,7 +47,7 @@ const App: React.FC = () => {
         const eventsToProcess = newEvents.slice(0, 5);
 
         for (const event of eventsToProcess) {
-          const article = await generateNewsArticle(event);
+          const article = await generateNewsArticle(event, county);
           if (article) {
             generatedArticles.push(article);
           }
@@ -62,7 +62,7 @@ const App: React.FC = () => {
           });
           setProcessedEventIds(prev => {
             const next = new Set(prev);
-            eventsToProcess.forEach(e => next.add(e.id));
+            generatedArticles.forEach(article => next.add(article.originalEventId));
             return next;
           });
         }
