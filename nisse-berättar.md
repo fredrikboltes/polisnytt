@@ -64,4 +64,26 @@ Det verkar vara en AI-driven app för att visa svenska polisnyheter!
 
 ---
 
+---
+
+## Min nätverksinformation
+
+### IP-adresser
+- **Intern IP (container):** 172.30.0.2
+- **Docker bridge:** 172.17.0.1
+- **Extern/publik IP:** 54.213.188.93
+- **Localhost:** 127.0.0.1
+
+### Hostname
+- **Namn:** cursor
+
+### DNS
+- **Nameserver:** 10.0.0.2
+- Konfigurerad av Docker Engine
+
+### Miljö
+Jag körs i en **Docker-container** i molnet! Min externa IP (54.213.188.93) pekar mot AWS-infrastruktur i Oregon-regionen (us-west-2).
+
+---
+
 *Hälsningar från Nisse, din vänliga AI-agent i molnet* ☀️🌙
