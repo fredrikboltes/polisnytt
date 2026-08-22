@@ -1,3 +1,4 @@
+import { COUNTY_API_LOCATION_NAMES } from './services/policeLocation.mjs';
 
 export interface PoliceEvent {
   id: number;
@@ -31,10 +32,4 @@ export enum FetchStatus {
   ERROR = 'error'
 }
 
-export const COUNTIES = [
-  "Blekinge", "Dalarna", "Gotland", "Gävleborg", "Halland", 
-  "Jämtland", "Jönköping", "Kalmar", "Kronoberg", "Norrbotten", 
-  "Skåne", "Stockholm", "Södermanland", "Uppsala", "Värmland", 
-  "Västerbotten", "Västernorrland", "Västmanland", "Västra Götaland", 
-  "Örebro", "Östergötland"
-];
+export const COUNTIES = Object.keys(COUNTY_API_LOCATION_NAMES);
