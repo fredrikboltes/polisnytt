@@ -1,13 +1,16 @@
 
 import { PoliceEvent, NewsArticle } from "../types";
 
-export const generateNewsArticle = async (event: PoliceEvent): Promise<NewsArticle> => {
+export const generateNewsArticle = async (
+  event: PoliceEvent,
+  locationName: string,
+): Promise<NewsArticle> => {
   const response = await fetch('/api/generate-article', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ eventId: event.id }),
+    body: JSON.stringify({ eventId: event.id, location: locationName }),
   });
 
   if (!response.ok) {

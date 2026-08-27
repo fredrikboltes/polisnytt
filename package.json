@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test server/*.test.mjs"
+    "test": "node --test server/*.test.mjs services/*.test.mjs"
   },
   "dependencies": {
     "react-dom": "^19.2.3",

@@ -56,7 +56,7 @@ const App: React.FC = () => {
         for (const event of eventsToProcess) {
           if (requestId !== requestIdRef.current) return;
           try {
-            const article = await generateNewsArticle(event);
+            const article = await generateNewsArticle(event, county);
             if (requestId !== requestIdRef.current) return;
             generatedArticles.push(article);
             failedEventIdsRef.current.delete(event.id);
