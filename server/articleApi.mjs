@@ -1,13 +1,15 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import { policeEventsUrl, toPoliceLocationName } from '../services/policeLocation.mjs';
 
 const API_PATH = '/api/generate-article';
 const MAX_BODY_BYTES = 64 * 1024;
-const POLICE_EVENTS_URL = 'https://polisen.se/api/events';
+const MAX_LOCATION_LENGTH = 100;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const RATE_LIMIT = 25;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TRACKED_CLIENTS = 1000;
 const MAX_CACHED_ARTICLES = 1000;
+const MAX_CACHED_FEEDS = 30;
 
 class RequestError extends Error {
   constructor(status, message) {
@@ -143,8 +145,32 @@ const generationRequest = (event) => ({
   },
 });
 
-const fetchCurrentPoliceEvents = async () => {
-  const response = await fetch(POLICE_EVENTS_URL);
+const parseLocationName = (location) => {
+  if (location == null) return undefined;
+  if (typeof location !== 'string') {
+    throw new RequestError(400, 'A valid location is required');
+  }
+
+  const trimmed = location.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_LOCATION_LENGTH) {
+    throw new RequestError(400, 'A valid location is required');
+  }
+
+  return trimmed;
+};
+
+const evictExpiredMapEntries = (cache, currentTime, maxSize) => {
+  if (cache.size < maxSize) return;
+  for (const [key, value] of cache) {
+    if (value.expiresAt <= currentTime) cache.delete(key);
+  }
+  if (cache.size >= maxSize) {
+    cache.delete(cache.keys().next().value);
+  }
+};
+
+const fetchCurrentPoliceEvents = async (locationName) => {
+  const response = await fetch(policeEventsUrl(locationName));
   if (!response.ok) {
     throw new Error(`Police API returned status ${response.status}`);
   }
@@ -165,9 +191,8 @@ export const createArticleApiMiddleware = ({
   rateLimit = RATE_LIMIT,
 } = {}) => {
   let client;
-  let policeEvents = [];
-  let policeEventsExpireAt = 0;
-  let policeEventsPromise;
+  const policeFeeds = new Map();
+  const policeFeedPromises = new Map();
   const articleCache = new Map();
   const inFlightArticles = new Map();
   const rateLimits = new Map();
@@ -178,22 +203,31 @@ export const createArticleApiMiddleware = ({
       return client.models.generateContent(request);
     });
 
-  const findPoliceEvent = async (eventId) => {
-    if (now() >= policeEventsExpireAt) {
-      policeEventsPromise ||= Promise.resolve(fetchPoliceEvents())
-        .then(events => {
-          if (!Array.isArray(events)) {
-            throw new Error('Police API returned an invalid response');
-          }
-          policeEvents = events.filter(isPoliceEvent);
-          policeEventsExpireAt = now() + CACHE_TTL_MS;
-        })
-        .finally(() => {
-          policeEventsPromise = undefined;
-        });
-      await policeEventsPromise;
+  const findPoliceEvent = async (eventId, locationName) => {
+    const cacheKey = locationName ? toPoliceLocationName(locationName) : '';
+    const cached = policeFeeds.get(cacheKey);
+    if (!cached || now() >= cached.expiresAt) {
+      let pending = policeFeedPromises.get(cacheKey);
+      if (!pending) {
+        pending = Promise.resolve(fetchPoliceEvents(cacheKey || undefined))
+          .then(events => {
+            if (!Array.isArray(events)) {
+              throw new Error('Police API returned an invalid response');
+            }
+            evictExpiredMapEntries(policeFeeds, now(), MAX_CACHED_FEEDS);
+            policeFeeds.set(cacheKey, {
+              events: events.filter(isPoliceEvent),
+              expiresAt: now() + CACHE_TTL_MS,
+            });
+          })
+          .finally(() => {
+            policeFeedPromises.delete(cacheKey);
+          });
+        policeFeedPromises.set(cacheKey, pending);
+      }
+      await pending;
     }
-    return policeEvents.find(event => event.id === eventId);
+    return policeFeeds.get(cacheKey)?.events.find(event => event.id === eventId);
   };
 
   const isRateLimited = (req) => {
@@ -282,6 +316,7 @@ export const createArticleApiMiddleware = ({
         throw new RequestError(400, 'A valid police event ID is required');
       }
 
+      const locationName = parseLocationName(body?.location);
       const cached = articleCache.get(body.eventId);
       if (cached && cached.expiresAt > now()) {
         sendJson(res, 200, cached.article);
@@ -289,7 +324,7 @@ export const createArticleApiMiddleware = ({
       }
       if (cached) articleCache.delete(body.eventId);
 
-      const event = await findPoliceEvent(body.eventId);
+      const event = await findPoliceEvent(body.eventId, locationName);
       if (!event) {
         throw new RequestError(404, 'Police event was not found');
       }

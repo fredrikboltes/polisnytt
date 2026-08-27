@@ -234,3 +234,74 @@ test('rate-limits uncached generation requests from one client', async () => {
   });
   assert.equal(otherClientResponse.status, 200);
 });
+
+const countyOnlyEvent = {
+  ...policeEvent,
+  id: 650664,
+  location: {
+    name: 'Visby',
+    gps: '57.6348,18.2948',
+  },
+};
+
+const articlePayload = {
+  text: JSON.stringify({
+    title: 'Händelse på Gotland',
+    lead: 'Polisen rapporterar en händelse i Visby.',
+    body: 'Arbetet pågår på platsen.',
+    category: 'Blåljus',
+  }),
+};
+
+test('resolves event IDs from a county feed that is missing from the national cap', async () => {
+  const requestedLocations = [];
+  const baseUrl = await startServer({
+    fetchPoliceEvents: async (locationName) => {
+      requestedLocations.push(locationName);
+      if (locationName === 'Gotlands län') return [countyOnlyEvent];
+      return [];
+    },
+    generateContent: async () => articlePayload,
+  });
+
+  const missingNational = await fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId: countyOnlyEvent.id }),
+  });
+  const foundInCounty = await fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId: countyOnlyEvent.id, location: 'Gotland' }),
+  });
+  const article = await foundInCounty.json();
+
+  assert.equal(missingNational.status, 404);
+  assert.equal(foundInCounty.status, 200);
+  assert.equal(article.originalEventId, countyOnlyEvent.id);
+  assert.deepEqual(requestedLocations, [undefined, 'Gotlands län']);
+});
+
+test('rejects invalid location values before calling the provider', async () => {
+  let providerCalled = false;
+  let policeFeedCalled = false;
+  const baseUrl = await startServer({
+    fetchPoliceEvents: async () => {
+      policeFeedCalled = true;
+      return [policeEvent];
+    },
+    generateContent: async () => {
+      providerCalled = true;
+    },
+  });
+
+  const response = await fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId: policeEvent.id, location: 123 }),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(providerCalled, false);
+  assert.equal(policeFeedCalled, false);
+});
