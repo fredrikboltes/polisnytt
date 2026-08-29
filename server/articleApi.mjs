@@ -5,6 +5,7 @@ const API_PATH = '/api/generate-article';
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_LOCATION_LENGTH = 100;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const FEED_NEGATIVE_LOOKUP_REVALIDATE_MS = 30 * 1000;
 const RATE_LIMIT = 25;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TRACKED_CLIENTS = 1000;
@@ -203,30 +204,47 @@ export const createArticleApiMiddleware = ({
       return client.models.generateContent(request);
     });
 
+  const refreshPoliceFeed = async (cacheKey) => {
+    let pending = policeFeedPromises.get(cacheKey);
+    if (!pending) {
+      pending = Promise.resolve(fetchPoliceEvents(cacheKey || undefined))
+        .then(events => {
+          if (!Array.isArray(events)) {
+            throw new Error('Police API returned an invalid response');
+          }
+          evictExpiredMapEntries(policeFeeds, now(), MAX_CACHED_FEEDS);
+          const fetchedAt = now();
+          policeFeeds.set(cacheKey, {
+            events: events.filter(isPoliceEvent),
+            fetchedAt,
+            expiresAt: fetchedAt + CACHE_TTL_MS,
+          });
+        })
+        .finally(() => {
+          policeFeedPromises.delete(cacheKey);
+        });
+      policeFeedPromises.set(cacheKey, pending);
+    }
+    await pending;
+  };
+
   const findPoliceEvent = async (eventId, locationName) => {
     const cacheKey = locationName ? toPoliceLocationName(locationName) : '';
     const cached = policeFeeds.get(cacheKey);
-    if (!cached || now() >= cached.expiresAt) {
-      let pending = policeFeedPromises.get(cacheKey);
-      if (!pending) {
-        pending = Promise.resolve(fetchPoliceEvents(cacheKey || undefined))
-          .then(events => {
-            if (!Array.isArray(events)) {
-              throw new Error('Police API returned an invalid response');
-            }
-            evictExpiredMapEntries(policeFeeds, now(), MAX_CACHED_FEEDS);
-            policeFeeds.set(cacheKey, {
-              events: events.filter(isPoliceEvent),
-              expiresAt: now() + CACHE_TTL_MS,
-            });
-          })
-          .finally(() => {
-            policeFeedPromises.delete(cacheKey);
-          });
-        policeFeedPromises.set(cacheKey, pending);
-      }
-      await pending;
-    }
+    const cachedEvent = cached && now() < cached.expiresAt
+      ? cached.events.find(event => event.id === eventId)
+      : undefined;
+
+    if (cachedEvent) return cachedEvent;
+
+    const cacheIsFreshNegative =
+      cached &&
+      now() < cached.expiresAt &&
+      now() - cached.fetchedAt < FEED_NEGATIVE_LOOKUP_REVALIDATE_MS;
+
+    if (cacheIsFreshNegative) return undefined;
+
+    await refreshPoliceFeed(cacheKey);
     return policeFeeds.get(cacheKey)?.events.find(event => event.id === eventId);
   };
 

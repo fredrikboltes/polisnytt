@@ -305,3 +305,59 @@ test('rejects invalid location values before calling the provider', async () => 
   assert.equal(providerCalled, false);
   assert.equal(policeFeedCalled, false);
 });
+
+const postArticle = (baseUrl, eventId, location = 'Skåne') =>
+  fetch(`${baseUrl}/api/generate-article`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId, location }),
+  });
+
+test('revalidates a stale cached feed when a newer event ID is missing', async () => {
+  const newerEvent = {
+    ...policeEvent,
+    id: 650993,
+    name: 'Ny händelse',
+    summary: 'En ny rapport har kommit in.',
+  };
+  let currentTime = 1_000_000;
+  let feedFetches = 0;
+  const baseUrl = await startServer({
+    now: () => currentTime,
+    fetchPoliceEvents: async () => {
+      feedFetches++;
+      return feedFetches === 1 ? [policeEvent] : [policeEvent, newerEvent];
+    },
+    generateContent: async () => articlePayload,
+  });
+
+  const first = await postArticle(baseUrl, policeEvent.id);
+  assert.equal(first.status, 200);
+  assert.equal(feedFetches, 1);
+
+  currentTime += 31_000;
+  const refreshed = await postArticle(baseUrl, newerEvent.id);
+  const article = await refreshed.json();
+
+  assert.equal(refreshed.status, 200);
+  assert.equal(article.originalEventId, newerEvent.id);
+  assert.equal(feedFetches, 2);
+});
+
+test('does not refetch the Police feed for an unknown ID on a fresh cache', async () => {
+  let feedFetches = 0;
+  const baseUrl = await startServer({
+    fetchPoliceEvents: async () => {
+      feedFetches++;
+      return [policeEvent];
+    },
+    generateContent: async () => articlePayload,
+  });
+
+  const first = await postArticle(baseUrl, policeEvent.id);
+  const missing = await postArticle(baseUrl, 999999);
+
+  assert.equal(first.status, 200);
+  assert.equal(missing.status, 404);
+  assert.equal(feedFetches, 1);
+});
