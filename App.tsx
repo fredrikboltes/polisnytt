@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchPoliceEvents } from './services/policeService';
 import { generateNewsArticle } from './services/geminiService';
+import { comparePoliceTimestampsDesc } from './services/policeTime.mjs';
 import { NewsArticle, FetchStatus } from './types';
 import Header from './components/Header';
 import ArticleCard from './components/ArticleCard';
@@ -56,8 +57,8 @@ const App: React.FC = () => {
         if (generatedArticles.length > 0) {
           setArticles(prev => {
             const combined = [...generatedArticles, ...prev];
-            return combined.sort((a, b) => 
-              new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            return combined.sort((a, b) =>
+              comparePoliceTimestampsDesc(a.timestamp, b.timestamp)
             );
           });
           setProcessedEventIds(prev => {

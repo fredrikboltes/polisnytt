@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { formatPoliceTimestamp } from '../services/policeTime.mjs';
 import { NewsArticle } from '../types';
 
 interface ArticleCardProps {
@@ -10,13 +11,7 @@ interface ArticleCardProps {
 const ArticleCard: React.FC<ArticleCardProps> = ({ article, isFeatured }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const formattedDate = new Date(article.timestamp).toLocaleString('sv-SE', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  const formattedDate = formatPoliceTimestamp(article.timestamp);
 
   if (isFeatured) {
     return (
