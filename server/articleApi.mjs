@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { policeEventsUrl, toPoliceLocationName } from '../services/policeLocation.mjs';
+import { fetchPoliceFeed } from '../services/policeFeed.mjs';
+import { toPoliceLocationName } from '../services/policeLocation.mjs';
 
 const API_PATH = '/api/generate-article';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -171,16 +172,7 @@ const evictExpiredMapEntries = (cache, currentTime, maxSize) => {
 };
 
 const fetchCurrentPoliceEvents = async (locationName) => {
-  const response = await fetch(policeEventsUrl(locationName));
-  if (!response.ok) {
-    throw new Error(`Police API returned status ${response.status}`);
-  }
-
-  const events = await response.json();
-  if (!Array.isArray(events)) {
-    throw new Error('Police API returned an invalid response');
-  }
-
+  const events = await fetchPoliceFeed(locationName);
   return events.filter(isPoliceEvent);
 };
 
