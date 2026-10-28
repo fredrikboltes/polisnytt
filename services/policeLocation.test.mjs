@@ -44,9 +44,11 @@ test('builds Police API URLs with official locationname values', () => {
 
 test('client event fetches use policeEventsUrl instead of raw UI county labels', async () => {
   const { readFile } = await import('node:fs/promises');
-  const source = await readFile(new URL('./policeService.ts', import.meta.url), 'utf8');
+  const client = await readFile(new URL('./policeService.ts', import.meta.url), 'utf8');
+  const helper = await readFile(new URL('./policeFeed.mjs', import.meta.url), 'utf8');
 
-  assert.match(source, /import \{ policeEventsUrl \} from '\.\/policeLocation\.mjs'/);
-  assert.match(source, /fetch\(policeEventsUrl\(locationName\)\)/);
-  assert.doesNotMatch(source, /searchParams\.append\(['"]locationname['"], locationName\)/);
+  assert.match(client, /fetchPoliceFeed\(locationName\)/);
+  assert.match(helper, /policeEventsUrl\(locationName\)/);
+  assert.doesNotMatch(client, /searchParams\.append\(['"]locationname['"], locationName\)/);
+  assert.doesNotMatch(helper, /searchParams\.append\(['"]locationname['"], locationName\)/);
 });
